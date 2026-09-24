@@ -1,12 +1,14 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template_string, redirect, url_for, session
 import json
 import os
 from datetime import datetime
+from functools import wraps
 
 app = Flask(__name__)
+app.secret_key = 'clave_secreta_super_segura_123'
 
 # ============================================
-# BASE DE DATOS SIMULADA
+# BASE DE DATOS
 # ============================================
 
 def cargar_datos():
@@ -15,7 +17,6 @@ def cargar_datos():
         with open('datos.json', 'r', encoding='utf-8') as f:
             return json.load(f)
     except FileNotFoundError:
-        # Datos iniciales si no existe el archivo
         datos_iniciales = {
             "productos": [
                 {"id": 1, "nombre": "leche", "precio": 2.50, "stock": 20},
@@ -27,7 +28,8 @@ def cargar_datos():
                 {"id": 7, "nombre": "galletas", "precio": 1.50, "stock": 35},
                 {"id": 8, "nombre": "jabón", "precio": 2.00, "stock": 45}
             ],
-            "compras": []
+            "compras": [],
+            "proxies": []
         }
         guardar_datos(datos_iniciales)
         return datos_iniciales
@@ -62,7 +64,6 @@ def registrar_compra(producto, cantidad):
     }
     datos["compras"].append(compra)
     
-    # Actualizar stock
     for p in datos["productos"]:
         if p["id"] == producto["id"]:
             p["stock"] -= cantidad
@@ -72,137 +73,429 @@ def registrar_compra(producto, cantidad):
     return compra
 
 # ============================================
+# AUTENTICACIÓN
+# ============================================
+
+def login_requerido(f):
+    """Decorador para requerir autenticación"""
+    @wraps(f)
+    def decorador(*args, **kwargs):
+        if not session.get('logueado'):
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorador
+
+# ============================================
 # RUTAS PRINCIPALES
 # ============================================
 
 @app.route('/')
 def home():
     """Página principal"""
-    return '''
+    if session.get('logueado'):
+        return redirect(url_for('dashboard'))
+    return redirect(url_for('login'))
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Página de inicio de sesión"""
+    if request.method == 'POST':
+        usuario = request.form.get('usuario')
+        password = request.form.get('password')
+        
+        if usuario == 'admin' and password == 'admin123':
+            session['logueado'] = True
+            return redirect(url_for('dashboard'))
+        else:
+            return render_template_string('''
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Login - Bot de Compras</title>
+                <style>
+                    body { font-family: Arial, sans-serif; background: #f0f0f0; display: flex; justify-content: center; align-items: center; height: 100vh; }
+                    .login-box { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); width: 300px; }
+                    h1 { color: #128C7E; text-align: center; }
+                    input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+                    button { width: 100%; padding: 10px; background: #128C7E; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+                    button:hover { background: #0e6b5e; }
+                    .error { color: red; text-align: center; margin: 10px 0; }
+                </style>
+            </head>
+            <body>
+                <div class="login-box">
+                    <h1>🤖 Bot de Compras</h1>
+                    <div class="error">❌ Usuario o contraseña incorrectos</div>
+                    <form method="POST">
+                        <input type="text" name="usuario" placeholder="Usuario" required>
+                        <input type="password" name="password" placeholder="Contraseña" required>
+                        <button type="submit">Iniciar Sesión</button>
+                    </form>
+                </div>
+            </body>
+            </html>
+            ''')
+    
+    return render_template_string('''
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Bot de Compras</title>
+        <title>Login - Bot de Compras</title>
         <style>
-            body { font-family: Arial, sans-serif; margin: 40px; }
-            h1 { color: #128C7E; }
-            .info { background: #f0f0f0; padding: 20px; border-radius: 10px; }
+            body { font-family: Arial, sans-serif; background: #f0f0f0; display: flex; justify-content: center; align-items: center; height: 100vh; }
+            .login-box { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); width: 300px; }
+            h1 { color: #128C7E; text-align: center; }
+            input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+            button { width: 100%; padding: 10px; background: #128C7E; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+            button:hover { background: #0e6b5e; }
         </style>
     </head>
     <body>
-        <h1>🤖 Bot de Compras</h1>
-        <div class="info">
-            <p><strong>Estado:</strong> ✅ Funcionando</p>
-            <p><strong>Productos disponibles:</strong> 8</p>
-            <p><strong>Compras registradas:</strong> 0</p>
+        <div class="login-box">
+            <h1>🤖 Bot de Compras</h1>
+            <form method="POST">
+                <input type="text" name="usuario" placeholder="Usuario" required>
+                <input type="password" name="password" placeholder="Contraseña" required>
+                <button type="submit">Iniciar Sesión</button>
+            </form>
         </div>
     </body>
     </html>
-    '''
+    ''')
 
-@app.route('/webhook', methods=['GET', 'POST'])
-def webhook():
-    """Webhook para WhatsApp (mantenido pero sin notificaciones)"""
-    if request.method == 'GET':
-        # Verificación del webhook
-        verify_token = request.args.get('hub.verify_token')
-        challenge = request.args.get('hub.challenge')
-        
-        if verify_token == 'botcompras123':
-            return challenge
-        return 'Token de verificación incorrecto', 403
+@app.route('/logout')
+def logout():
+    """Cerrar sesión"""
+    session.clear()
+    return redirect(url_for('login'))
+
+# ============================================
+# DASHBOARD PRINCIPAL
+# ============================================
+
+@app.route('/dashboard')
+@login_requerido
+def dashboard():
+    """Panel principal"""
+    datos = cargar_datos()
     
-    # Recibir mensajes de WhatsApp
+    return render_template_string('''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Dashboard - Bot de Compras</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+            .header { background: #128C7E; color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
+            .nav { display: flex; gap: 20px; margin-bottom: 20px; }
+            .nav a { text-decoration: none; color: #128C7E; padding: 10px 20px; background: white; border-radius: 5px; }
+            .nav a:hover { background: #e0e0e0; }
+            .nav a.active { background: #128C7E; color: white; }
+            .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 20px; }
+            .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+            .card h3 { margin: 0 0 10px 0; color: #333; }
+            .card .numero { font-size: 24px; font-weight: bold; color: #128C7E; }
+            table { width: 100%; border-collapse: collapse; background: white; border-radius: 10px; overflow: hidden; }
+            th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+            th { background: #128C7E; color: white; }
+            tr:hover { background: #f5f5f5; }
+            .btn { padding: 8px 16px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; }
+            .btn-editar { background: #ffc107; color: white; }
+            .btn-eliminar { background: #dc3545; color: white; }
+            .btn-agregar { background: #28a745; color: white; padding: 10px 20px; font-size: 16px; }
+            .btn:hover { opacity: 0.8; }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>🤖 Bot de Compras - Dashboard</h1>
+            <p>Bienvenido, admin | <a href="/logout" style="color: white;">Cerrar Sesión</a></p>
+        </div>
+        
+        <div class="nav">
+            <a href="/dashboard" class="active">📊 Dashboard</a>
+            <a href="/productos">📦 Productos</a>
+            <a href="/proxies">🔒 Proxies</a>
+            <a href="/compras">🛒 Compras</a>
+        </div>
+        
+        <div class="cards">
+            <div class="card">
+                <h3>Total Productos</h3>
+                <div class="numero">{{ datos.productos|length }}</div>
+            </div>
+            <div class="card">
+                <h3>Total Compras</h3>
+                <div class="numero">{{ datos.compras|length }}</div>
+            </div>
+            <div class="card">
+                <h3>Total Proxies</h3>
+                <div class="numero">{{ datos.proxies|length }}</div>
+            </div>
+            <div class="card">
+                <h3>Valor Inventario</h3>
+                <div class="numero">€{{ valor_inventario }}</div>
+            </div>
+        </div>
+        
+        <h2>📦 Últimos Productos</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Nombre</th>
+                    <th>Precio</th>
+                    <th>Stock</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in datos.productos[:5] %}
+                <tr>
+                    <td>{{ p.id }}</td>
+                    <td>{{ p.nombre }}</td>
+                    <td>€{{ "%.2f"|format(p.precio) }}</td>
+                    <td>{{ p.stock }}</td>
+                    <td>
+                        <a href="/editar_producto/{{ p.id }}" class="btn btn-editar">✏️ Editar</a>
+                        <a href="/eliminar_producto/{{ p.id }}" class="btn btn-eliminar" onclick="return confirm('¿Eliminar?')">🗑️ Eliminar</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        
+        <br>
+        <a href="/productos" class="btn btn-agregar">➕ Ver Todos los Productos</a>
+    </body>
+    </html>
+    ''', datos=datos, valor_inventario=sum(p["precio"] * p["stock"] for p in datos["productos"]))
+
+# ============================================
+# GESTIÓN DE PRODUCTOS
+# ============================================
+
+@app.route('/productos')
+@login_requerido
+def productos():
+    """Lista de productos"""
+    datos = cargar_datos()
+    
+    return render_template_string('''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Productos - Bot de Compras</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+            .header { background: #128C7E; color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
+            .nav { display: flex; gap: 20px; margin-bottom: 20px; }
+            .nav a { text-decoration: none; color: #128C7E; padding: 10px 20px; background: white; border-radius: 5px; }
+            .nav a:hover { background: #e0e0e0; }
+            .nav a.active { background: #128C7E; color: white; }
+            table { width: 100%; border-collapse: collapse; background: white; border-radius: 10px; overflow: hidden; }
+            th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+            th { background: #128C7E; color: white; }
+            tr:hover { background: #f5f5f5; }
+            .btn { padding: 8px 16px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; text-decoration: none; display: inline-block; }
+            .btn-editar { background: #ffc107; color: white; }
+            .btn-eliminar { background: #dc3545; color: white; }
+            .btn-agregar { background: #28a745; color: white; padding: 10px 20px; font-size: 16px; text-decoration: none; }
+            .btn:hover { opacity: 0.8; }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>📦 Gestión de Productos</h1>
+            <p>Bienvenido, admin | <a href="/logout" style="color: white;">Cerrar Sesión</a></p>
+        </div>
+        
+        <div class="nav">
+            <a href="/dashboard">📊 Dashboard</a>
+            <a href="/productos" class="active">📦 Productos</a>
+            <a href="/proxies">🔒 Proxies</a>
+            <a href="/compras">🛒 Compras</a>
+        </div>
+        
+        <a href="/agregar_producto" class="btn btn-agregar" style="margin-bottom: 20px;">➕ Agregar Producto</a>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Nombre</th>
+                    <th>Precio</th>
+                    <th>Stock</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in datos.productos %}
+                <tr>
+                    <td>{{ p.id }}</td>
+                    <td>{{ p.nombre }}</td>
+                    <td>€{{ "%.2f"|format(p.precio) }}</td>
+                    <td>{{ p.stock }}</td>
+                    <td>
+                        <a href="/editar_producto/{{ p.id }}" class="btn btn-editar">✏️ Editar</a>
+                        <a href="/eliminar_producto/{{ p.id }}" class="btn btn-eliminar" onclick="return confirm('¿Eliminar?')">🗑️ Eliminar</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </body>
+    </html>
+    ''', datos=datos)
+
+@app.route('/agregar_producto', methods=['GET', 'POST'])
+@login_requerido
+def agregar_producto():
+    """Agregar nuevo producto"""
     if request.method == 'POST':
-        data = request.get_json()
-        print(f"Mensaje recibido: {data}")
-        
-        # Procesar mensajes (sin enviar notificaciones)
-        if data and 'entry' in data:
-            for entry in data['entry']:
-                for change in entry.get('changes', []):
-                    value = change.get('value', {})
-                    messages = value.get('messages', [])
-                    
-                    for message in messages:
-                        if message.get('type') == 'text':
-                            texto = message.get('text', {}).get('body', '').lower()
-                            from_number = message.get('from', '')
-                            
-                            # Procesar comandos
-                            respuesta = procesar_comando(texto)
-                            
-                            # Aquí NO se envía respuesta por WhatsApp
-                            # Solo se registra en logs
-                            print(f"Comando: {texto}")
-                            print(f"Respuesta: {respuesta}")
-                            print(f"De: {from_number}")
-        
-        return jsonify({"status": "received"}), 200
-
-def procesar_comando(texto):
-    """Procesa los comandos del bot"""
-    # Comandos básicos
-    if texto == "hola":
-        return "¡Hola! 👋 Soy tu bot de compras. Escribe 'ayuda' para ver los comandos."
-    
-    if texto == "ayuda":
-        return "📋 Comandos disponibles:\n" \
-               "• 'precio [producto]' - Ver precio\n" \
-               "• 'stock [producto]' - Ver stock\n" \
-               "• 'comprar [producto]' - Hacer compra\n" \
-               "• 'precios' - Ver todos los precios\n" \
-               "• 'hola' - Saludo"
-    
-    if texto == "precios":
         datos = cargar_datos()
-        respuesta = "📦 Precios de productos:\n"
-        for p in datos["productos"]:
-            respuesta += f"• {p['nombre'].capitalize()}: {formatear_precio(p['precio'])} (Stock: {p['stock']})\n"
-        return respuesta
+        nombre = request.form.get('nombre')
+        precio = float(request.form.get('precio'))
+        stock = int(request.form.get('stock'))
+        
+        nuevo_id = max([p["id"] for p in datos["productos"]], default=0) + 1
+        
+        datos["productos"].append({
+            "id": nuevo_id,
+            "nombre": nombre,
+            "precio": precio,
+            "stock": stock
+        })
+        
+        guardar_datos(datos)
+        return redirect(url_for('productos'))
     
-    # Comando precio
-    if texto.startswith("precio "):
-        nombre = texto.replace("precio ", "")
-        producto = buscar_producto(nombre)
-        if producto:
-            return f"💰 {producto['nombre'].capitalize()}: {formatear_precio(producto['precio'])}"
-        return f"❌ Producto '{nombre}' no encontrado"
+    return render_template_string('''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Agregar Producto - Bot de Compras</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+            .header { background: #128C7E; color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
+            .form-box { background: white; padding: 30px; border-radius: 10px; max-width: 400px; }
+            input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+            button { width: 100%; padding: 10px; background: #128C7E; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+            button:hover { background: #0e6b5e; }
+            .btn-cancelar { background: #dc3545; text-align: center; display: block; padding: 10px; border-radius: 5px; text-decoration: none; color: white; margin-top: 10px; }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>➕ Agregar Producto</h1>
+            <p>Bienvenido, admin | <a href="/logout" style="color: white;">Cerrar Sesión</a></p>
+        </div>
+        
+        <div class="form-box">
+            <form method="POST">
+                <label>Nombre del Producto:</label>
+                <input type="text" name="nombre" required>
+                
+                <label>Precio (€):</label>
+                <input type="number" name="precio" step="0.01" required>
+                
+                <label>Stock:</label>
+                <input type="number" name="stock" required>
+                
+                <button type="submit">Guardar Producto</button>
+            </form>
+            <a href="/productos" class="btn-cancelar">Cancelar</a>
+        </div>
+    </body>
+    </html>
+    ''')
+
+@app.route('/editar_producto/<int:id>', methods=['GET', 'POST'])
+@login_requerido
+def editar_producto(id):
+    """Editar producto"""
+    datos = cargar_datos()
+    producto = next((p for p in datos["productos"] if p["id"] == id), None)
     
-    # Comando stock
-    if texto.startswith("stock "):
-        nombre = texto.replace("stock ", "")
-        producto = buscar_producto(nombre)
-        if producto:
-            return f"📦 {producto['nombre'].capitalize()}: {producto['stock']} unidades disponibles"
-        return f"❌ Producto '{nombre}' no encontrado"
+    if not producto:
+        return "Producto no encontrado", 404
     
-    # Comando comprar
-    if texto.startswith("comprar "):
-        nombre = texto.replace("comprar ", "")
-        producto = buscar_producto(nombre)
-        if producto:
-            if producto["stock"] > 0:
-                compra = registrar_compra(producto, 1)
-                return f"✅ Compra registrada:\n" \
-                       f"• Producto: {producto['nombre'].capitalize()}\n" \
-                       f"• Precio: {formatear_precio(producto['precio'])}\n" \
-                       f"• Total: {formatear_precio(compra['total'])}"
-            return f"❌ No hay stock de {producto['nombre']}"
-        return f"❌ Producto '{nombre}' no encontrado"
+    if request.method == 'POST':
+        producto["nombre"] = request.form.get('nombre')
+        producto["precio"] = float(request.form.get('precio'))
+        producto["stock"] = int(request.form.get('stock'))
+        guardar_datos(datos)
+        return redirect(url_for('productos'))
     
-    return "❌ Comando no reconocido. Escribe 'ayuda' para ver los comandos."
+    return render_template_string('''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Editar Producto - Bot de Compras</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+            .header { background: #128C7E; color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
+            .form-box { background: white; padding: 30px; border-radius: 10px; max-width: 400px; }
+            input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+            button { width: 100%; padding: 10px; background: #128C7E; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+            button:hover { background: #0e6b5e; }
+            .btn-cancelar { background: #dc3545; text-align: center; display: block; padding: 10px; border-radius: 5px; text-decoration: none; color: white; margin-top: 10px; }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>✏️ Editar Producto</h1>
+            <p>Bienvenido, admin | <a href="/logout" style="color: white;">Cerrar Sesión</a></p>
+        </div>
+        
+        <div class="form-box">
+            <form method="POST">
+                <label>Nombre del Producto:</label>
+                <input type="text" name="nombre" value="{{ producto.nombre }}" required>
+                
+                <label>Precio (€):</label>
+                <input type="number" name="precio" step="0.01" value="{{ producto.precio }}" required>
+                
+                <label>Stock:</label>
+                <input type="number" name="stock" value="{{ producto.stock }}" required>
+                
+                <button type="submit">Guardar Cambios</button>
+            </form>
+            <a href="/productos" class="btn-cancelar">Cancelar</a>
+        </div>
+    </body>
+    </html>
+    ''', producto=producto)
+
+@app.route('/eliminar_producto/<int:id>')
+@login_requerido
+def eliminar_producto(id):
+    """Eliminar producto"""
+    datos = cargar_datos()
+    datos["productos"] = [p for p in datos["productos"] if p["id"] != id]
+    guardar_datos(datos)
+    return redirect(url_for('productos'))
 
 # ============================================
-# INICIO DEL SERVIDOR
+# GESTIÓN DE PROXIES
 # ============================================
 
-if __name__ == '__main__':
-    print("🤖 Bot de Compras iniciado")
-    print("📦 Cargando datos...")
-    cargar_datos()
-    print("✅ Datos cargados correctamente")
-    print("🌐 Servidor iniciado en puerto 5000")
+@app.route('/proxies')
+@login_requerido
+def proxies():
+    """Lista de proxies"""
+    datos = cargar_datos()
     
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    return render_template_string('''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Proxies - Bot de Compras</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+            .header { background: #128C7E; color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
+            .nav { display: flex; gap: 20px; margin-bottom: 20px; }
+            .nav a { text-decoration: none; color: #128C7E; padding: 10px 20px; background: white; border-radius: 5px; }
+            .nav a:hover { background: #e0e0e0; }
+            .nav a.active { background: #128C7E; color: white; }
+            table { width: 100%; border-collapse: collapse; background: white;
