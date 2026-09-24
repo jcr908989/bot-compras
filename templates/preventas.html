@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Preventas</title>
+    <style>
+        body { font-family: Arial; background: #f4f6f9; margin: 0; }
+        .navbar { background: #2c3e50; color: white; padding: 15px 30px; display: flex; justify-content: space-between; }
+        .navbar a { color: white; text-decoration: none; margin-left: 20px; }
+        .container { padding: 30px; max-width: 1200px; margin: 0 auto; }
+        .section { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        input, button { padding: 10px; margin: 5px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+        .btn { padding: 8px 15px; border: none; border-radius: 5px; cursor: pointer; }
+        .btn-primary { background: #3498db; color: white; }
+        .btn-danger { background: #e74c3c; color: white; }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <h2>Preventas</h2>
+        <div>
+            <a href="/">Dashboard</a>
+            <a href="/productos">Productos</a>
+            <a href="/configuracion">Configuración</a>
+            <a href="/logout">Salir</a>
+        </div>
+    </nav>
+    <div class="container">
+        <div class="section">
+            <h2>Añadir Preventa</h2>
+            <form method="POST" action="/api/preventas">
+                <input type="text" name="nombre" placeholder="Nombre">
+                <input type="text" name="url" placeholder="URL" style="width: 400px;">
+                <input type="text" name="fecha" placeholder="Fecha (opcional)">
+                <input type="text" name="precio" placeholder="Precio (opcional)">
+                <button class="btn btn-primary" type="submit">Añadir</button>
+            </form>
+        </div>
+        <div class="section" style="margin-top: 20px;">
+            <h2>Lista de Preventas</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Nombre</th>
+                        <th>Tienda</th>
+                        <th>URL</th>
+                        <th>Estado</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for preventa in preventas %}
+                    <tr>
+                        <td>{{ preventa.nombre }}</td>
+                        <td>{{ preventa.tienda }}</td>
+                        <td><a href="{{ preventa.url }}" target="_blank">Ver</a></td>
+                        <td>{{ preventa.estado }}</td>
+                        <td>
+                            <button class="btn btn-danger" onclick="eliminarPreventa({{ loop.index0 }})">Eliminar</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <script>
+        function eliminarPreventa(index) {
+            if (confirm('¿Eliminar?')) {
+                fetch('/api/preventas/' + index, {method: 'DELETE'})
+                .then(response => response.json())
+                .then(data => {
+                    alert('Eliminado');
+                    location.reload();
+                });
+            }
+        }
+    </script>
+</body>
+</html>
