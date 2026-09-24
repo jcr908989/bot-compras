@@ -457,6 +457,14 @@ def cargar_datos():
 
 cargar_datos()
 
+@app.route('/')
+def home():
+    return "🤖 BOT DE COMPRAS AUTOMATICAS 24/7 funcionando!"
+
+@app.route('/login')
+def login():
+    return "Página de login del bot"
+
 if __name__ == "__main__":
     print("BOT DE COMPRAS AUTOMATICAS 24/7")
     print("http://localhost:5000")
@@ -464,4 +472,4 @@ if __name__ == "__main__":
     print("Contrasena: admin123")
     import atexit
     atexit.register(guardar_datos)
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get('PORT', 5000)))
